@@ -1,0 +1,10 @@
+__pycache__
+.DS_Store
+_old_files
+testing.ipynb
+*.egg-info
+dist
+paper
+dataverse
+make_rendering_videos.ipynb
+.vscode

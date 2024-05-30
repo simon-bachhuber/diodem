@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imt-diodem"
+version = "1.0.0"
+authors = [
+  { name="Simon Bachhuber", email="simon.bachhuber@fau.de" },
+]
+description = "DIODEM -- A Diverse Inertial and Optical Dataset of kinEmatic chain Motion"
+readme = "readme.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "qmt",
+    "scipy",
+    "dm-tree",
+    "requests",
+    "pandas",
+    "imt-tree-utils",
+]
+
+[project.optional-dependencies]
+benchmark = [
+    "imt-ring",
+]
+
+[project.urls]
+Homepage = "https://github.com/SimiPixel/diodem"
+Issues = "https://github.com/SimiPixel/diodem/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+diodem = ["benchmark/xmls/gait.xml", "benchmark/xmls/arm.xml"]
