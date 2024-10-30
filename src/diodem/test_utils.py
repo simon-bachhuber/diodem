@@ -83,8 +83,8 @@ def test_crop_tail():
     np.testing.assert_allclose(data_cropped["omc"], data["omc"])
 
     data_cropped = utils.crop_tail(data, {"gyr": 40.0, "omc": 120.0})
-    np.testing.assert_allclose(data_cropped["gyr"], data["gyr"][:30])
-    np.testing.assert_allclose(data_cropped["omc"], data["omc"][:90])
+    np.testing.assert_allclose(data_cropped["gyr"], data["gyr"][:33])
+    np.testing.assert_allclose(data_cropped["omc"], data["omc"][:99])
 
 
 def test_resample_and_crop_tail():

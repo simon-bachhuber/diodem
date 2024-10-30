@@ -34,54 +34,51 @@ def crop_tail(
         assert arr.ndim < 3
         return len(arr) / hz
 
-    signal_lengths = tree.map_structure(length_in_seconds, signal, hz)
-    shortest_length = min(tree.flatten(signal_lengths))
-    hz_of_shortest_length = tree.flatten(hz)[np.argmin(tree.flatten(signal_lengths))]
+    signal_lengths_seconds = tree.map_structure(length_in_seconds, signal, hz)
+    shortest_length_seconds = min(tree.flatten(signal_lengths_seconds))
+    hz_of_shortest_length = tree.flatten(hz)[
+        np.argmin(tree.flatten(signal_lengths_seconds))
+    ]
 
     if strict:
         # reduce shortest_length until it becomes a clearn crop for all other
         # frequencies
-        i = -1
-        cleancrop = False
-        while not cleancrop:
-            i += 1
-            shortest_length -= i * (1 / hz_of_shortest_length)
-            cleancrop = True
-
-            for each_hz in tree.flatten(hz):
-                if (shortest_length * each_hz) % 1 != 0.0:
-                    cleancrop = False
-                    break
-
-            if i > int(hz_of_shortest_length):
-                warnings.warn(
-                    f"Must crop more than i={i} and still no clean crop possible."
-                )
-
-            if i > 100:
-                break
+        flat_hz = tree.flatten(hz)
+        dt = 1 / hz_of_shortest_length
+        iter = 100
+        for _ in range(iter):
+            for each_hz in flat_hz:
+                if (round(shortest_length_seconds * each_hz, 10) % 1) != 0.0:
+                    break  # cleancrop not possible
+            else:
+                break  # cleancrop possible
+            shortest_length_seconds -= dt
+        else:
+            warnings.warn(
+                "No cleancrop possible, tried to reduce shortest signal by "
+                f"{iter * dt} seconds"
+            )
 
     if verbose:
         if verbose_msg_index:
             print(
                 f"`crop_tail`: Crop off at index i="
-                f"{shortest_length / hz_of_shortest_length}"
+                f"{int(shortest_length_seconds * hz_of_shortest_length)}"
             )
         else:
-            print(
-                f"`crop_tail`: Crop off at t={shortest_length / hz_of_shortest_length}s"
-            )
+            print(f"`crop_tail`: Crop off at t={shortest_length_seconds}s")
 
     def crop(arr, hz):
         if strict:
-            crop_tail = np.round(shortest_length * hz, decimals=10)
+            crop_tail = np.round(shortest_length_seconds * hz, decimals=10)
             err_msg = (
-                f"No clean crop possible: shortest_length={shortest_length}; hz={hz}"
+                "No clean crop possible: shortest_length_seconds="
+                + f"{shortest_length_seconds}; hz={hz}"
             )
             assert (crop_tail % 1) == 0.0, err_msg
             crop_tail = int(crop_tail)
         else:
-            crop_tail = math.ceil(shortest_length * hz)
+            crop_tail = math.ceil(shortest_length_seconds * hz)
         return arr[:crop_tail]
 
     return tree.map_structure(crop, signal, hz)

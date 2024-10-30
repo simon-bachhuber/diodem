@@ -1,4 +1,5 @@
 from functools import cache
+import json
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -68,12 +69,20 @@ _dataverse_url = "https://dataverse.harvard.edu/api"
 _dataset_doi = "doi:10.7910/DVN/SGJLZA"
 
 
+def _dataverse_response_json():
+    url = f"{_dataverse_url}/datasets/:persistentId/versions/:latest/files?persistentId={_dataset_doi}"  # noqa: E501
+    path_json = Path(__file__).parent.joinpath("dataverse_response.json")
+
+    if path_json.exists():
+        return json.load(open(path_json))
+    else:
+        return requests.get(url).json()
+
+
 @cache
 def _dataverse_files() -> list[DataverseFile]:
 
-    url = f"{_dataverse_url}/datasets/:persistentId/versions/:latest/files?persistentId={_dataset_doi}"  # noqa: E501
-    response = requests.get(url)
-    data = response.json().get("data", [])
+    data = _dataverse_response_json().get("data", [])
 
     files: list[DataverseFile] = []
     for ele in data:
