@@ -4,6 +4,8 @@ from functools import cache
 from pathlib import Path
 from typing import Optional
 
+from diodem import load_data
+from diodem._src import _is_arm_or_gait
 import jax.numpy as jnp
 import numpy as np
 from ring import algorithms
@@ -12,9 +14,6 @@ from ring import maths
 from ring import ml
 from ring import sim2real
 from ring import utils
-
-from diodem import load_data
-from diodem._src import _is_arm_or_gait
 
 
 @cache
@@ -71,17 +70,25 @@ class IMTP:
             segs = segs[0:1] + [segs[-1]]
         return [f"imu{seg[-1]}" for seg in segs]
 
-    def sys(self, exp_id: int):
+    def sys(self, exp_id: int) -> base.System:
         include_links = self.segments + self.imus()
         sys = _get_sys(exp_id, self.segments[0], tuple(include_links))
         sys = sys.change_model_name(suffix=f"_{len(self.segments)}Seg")
         return sys
 
-    def sys_noimu(self, exp_id: int):
+    def sys_noimu(self, exp_id: int) -> [base.System, dict[str, str]]:
         sys_noimu, imu_attachment = self.sys(exp_id).make_sys_noimu()
         assert tuple(sys_noimu.link_parents) == self.lam
         assert sys_noimu.link_names == self.segments
         return sys_noimu, imu_attachment
+
+    def dof(self, exp_id: int) -> dict[str, int]:
+        sys = self.sys_noimu(exp_id)[0]
+        dofs = {
+            name: base.QD_WIDTHS[joint_type]
+            for name, joint_type in zip(sys.link_names, sys.link_types)
+        }
+        return dofs
 
     @property
     def lam(self) -> tuple:
