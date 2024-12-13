@@ -55,11 +55,20 @@ class IMTP:
     mag: bool = False
     flex: bool = False
     sparse: bool = False
-    joint_axes: bool = False
-    joint_axes_field: bool = True
+    joint_axes_1d: bool = False
+    joint_axes_1d_field: bool = True
+    joint_axes_2d: bool = False
+    joint_axes_2d_field: bool = False
+    dof: bool = False
+    dof_field: bool = False
     hz: float = 100.0
     dt: bool = True
     model_name_suffix: Optional[str] = None
+    # we divide by these factors
+    scale_acc: float = 1.0
+    scale_gyr: float = 1.0
+    scale_mag: float = 1.0
+    scale_dt: float = 1.0
 
     def replace(self, **kwargs):
         return replace(self, **kwargs)
@@ -76,19 +85,26 @@ class IMTP:
         sys = sys.change_model_name(suffix=f"_{len(self.segments)}Seg")
         return sys
 
-    def sys_noimu(self, exp_id: int) -> [base.System, dict[str, str]]:
+    def sys_noimu(self, exp_id: int) -> tuple[base.System, dict[str, str]]:
         sys_noimu, imu_attachment = self.sys(exp_id).make_sys_noimu()
         assert tuple(sys_noimu.link_parents) == self.lam
         assert sys_noimu.link_names == self.segments
         return sys_noimu, imu_attachment
 
-    def dof(self, exp_id: int) -> dict[str, int]:
+    def getDOF(self, exp_id: int) -> dict[str, int]:
         sys = self.sys_noimu(exp_id)[0]
         dofs = {
             name: base.QD_WIDTHS[joint_type]
             for name, joint_type in zip(sys.link_names, sys.link_types)
         }
         return dofs
+
+    def getJointAxes2d(self, exp_id: int, seg: str) -> np.ndarray:
+        "returns (6,) array"
+        # only exp_id > 6
+        assert exp_id >= 6
+        assert seg in ["seg2", "seg3"]
+        return np.array([0, 1, 0, 0, 0, 1.0])
 
     @property
     def lam(self) -> tuple:
@@ -98,14 +114,29 @@ class IMTP:
     def N(self):
         return len(self.segments)
 
+    def slice(self, feature: str) -> slice:
+        if not hasattr(self, "_slice"):
+            self.F
+        return self._slice[feature]
+
     @property
     def F(self):
         F = 6
+        self._slice = {"acc": slice(0, 3), "gyr": slice(3, 6)}
         if self.mag:
+            self._slice["mag"] = slice(6, 9)
             F += 3
-        if self.joint_axes_field:
+        if self.joint_axes_1d_field:
+            self._slice["ja_1d"] = slice(F, F + 3)
+            F += 3
+        if self.joint_axes_2d_field:
+            self._slice["ja_2d"] = slice(F, F + 6)
+            F += 6
+        if self.dof_field:
+            self._slice["dof"] = slice(F, F + 3)
             F += 3
         if self.dt:
+            self._slice["dt"] = slice(F, F + 1)
             F += 1
         return F
 
@@ -115,10 +146,15 @@ class IMTP:
         model_name = (
             self.sys(exp_id).change_model_name(suffix=self.model_name_suffix).model_name
         )
-        flex, mag, ja = int(self.flex), int(self.mag), int(self.joint_axes)
+        flex, mag, ja_1d, ja_2d = (
+            int(self.flex),
+            int(self.mag),
+            int(self.joint_axes_1d),
+            int(self.joint_axes_2d),
+        )
         return (
             f"{model_name}_exp{str(exp_id).rjust(2, '0')}_{motion_start}_{motion_stop}"
-            + f"_flex_{flex}_mag_{mag}_ja_{ja}"
+            + f"_flex_{flex}_mag_{mag}_ja1d_{ja_1d}_ja2d_{ja_2d}"
         )
 
 
@@ -151,24 +187,32 @@ def _build_Xy_xs_xsnoimu(
     for i, seg in enumerate(imtp.segments):
         if seg in list(imu_attachment.values()):
             X_seg = data[seg][imu_key]
-            X[:, i, :3] = X_seg["acc"]
-            X[:, i, 3:6] = X_seg["gyr"]
+            X[:, i, imtp.slice("acc")] = X_seg["acc"] / imtp.scale_acc
+            X[:, i, imtp.slice("gyr")] = X_seg["gyr"] / imtp.scale_gyr
             if imtp.mag:
-                X[:, i, 6:9] = X_seg["mag"]
+                X[:, i, imtp.slice("mag")] = X_seg["mag"] / imtp.scale_mag
 
-    if imtp.joint_axes:
+    DOFs = imtp.getDOF(exp_id)
+    if imtp.joint_axes_1d:
         X_joint_axes = algorithms.joint_axes(sys_noimu, xs, sys)
         for i, seg in enumerate(imtp.segments):
-            F_i = 9 if imtp.mag else 6
-            X[:, i, F_i : (F_i + 3)] = X_joint_axes[seg]["joint_axes"]  # noqa: E203
+            if DOFs[seg] == 1:
+                X[:, i, imtp.slice("ja_1d")] = X_joint_axes[seg][
+                    "joint_axes"
+                ]  # noqa: E203
+
+    if imtp.joint_axes_2d:
+        for i, seg in enumerate(imtp.segments):
+            if DOFs[seg] == 2:
+                ja_2d = imtp.getJointAxes2d(exp_id, seg)
+                X[:, i, imtp.slice("ja_2d")] = ja_2d[None]
 
     if imtp.dt:
-        repeated_dt = np.repeat(np.array([[1 / imtp.hz]]), T, axis=0)
         for i, seg in enumerate(imtp.segments):
-            X[:, i, (F - 1) : F] = repeated_dt  # noqa: E203
+            X[:, i, imtp.slice("dt")] = (1 / imtp.hz) / imtp.scale_dt
 
     y_dict = algorithms.rel_pose(sys_noimu, xs, sys)
-    y_rootfull = algorithms.sensors.root_full(sys_noimu, xs, sys)
+    y_rootfull = algorithms.sensors.root_full(sys_noimu, xs, sys, child_to_parent=True)
     y_dict = utils.dict_union(y_dict, y_rootfull)
     for i, seg in enumerate(imtp.segments):
         y[:, i] = y_dict[seg]
@@ -177,7 +221,10 @@ def _build_Xy_xs_xsnoimu(
 
 
 _mae_metrices = dict(
-    mae_deg=lambda q, qhat: jnp.rad2deg(jnp.mean(maths.angle_error(q, qhat)[:, 2500:]))
+    mae_deg=lambda q, qhat: jnp.rad2deg(jnp.mean(maths.angle_error(q, qhat)[:, 2500:])),
+    incl_deg=lambda q, qhat: jnp.rad2deg(
+        jnp.mean(maths.inclination_loss(q, qhat)[:, 2500:])
+    ),
 )
 
 
