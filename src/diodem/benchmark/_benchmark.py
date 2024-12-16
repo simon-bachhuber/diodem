@@ -4,8 +4,6 @@ from functools import cache
 from pathlib import Path
 from typing import Optional
 
-from diodem import load_data
-from diodem._src import _is_arm_or_gait
 import jax.numpy as jnp
 import numpy as np
 from ring import algorithms
@@ -14,6 +12,9 @@ from ring import maths
 from ring import ml
 from ring import sim2real
 from ring import utils
+
+from diodem import load_data
+from diodem._src import _is_arm_or_gait
 
 
 @cache
@@ -51,7 +52,7 @@ def _max_coords_after_omc_pos_offset(sys: base.System, data: dict) -> dict:
 
 @dataclass
 class IMTP:
-    segments: list[str]
+    segments: Optional[list[str]] = None
     mag: bool = False
     flex: bool = False
     sparse: bool = False
@@ -114,31 +115,33 @@ class IMTP:
     def N(self):
         return len(self.segments)
 
-    def slice(self, feature: str) -> slice:
-        if not hasattr(self, "_slice"):
-            self.F
-        return self._slice[feature]
+    def getSlices(self) -> dict[str, slice]:
+        _, slices = self._get_F_and_slices()
+        return slices
 
-    @property
-    def F(self):
+    def getF(self) -> int:
+        F, _ = self._get_F_and_slices()
+        return F
+
+    def _get_F_and_slices(self):
         F = 6
-        self._slice = {"acc": slice(0, 3), "gyr": slice(3, 6)}
+        slices = {"acc": slice(0, 3), "gyr": slice(3, 6)}
         if self.mag:
-            self._slice["mag"] = slice(6, 9)
+            slices["mag"] = slice(6, 9)
             F += 3
         if self.joint_axes_1d_field:
-            self._slice["ja_1d"] = slice(F, F + 3)
+            slices["ja_1d"] = slice(F, F + 3)
             F += 3
         if self.joint_axes_2d_field:
-            self._slice["ja_2d"] = slice(F, F + 6)
+            slices["ja_2d"] = slice(F, F + 6)
             F += 6
         if self.dof_field:
-            self._slice["dof"] = slice(F, F + 3)
+            slices["dof"] = slice(F, F + 3)
             F += 3
         if self.dt:
-            self._slice["dt"] = slice(F, F + 1)
+            slices["dt"] = slice(F, F + 1)
             F += 1
-        return F
+        return F, slices
 
     def name(self, exp_id: int, motion_start: str, motion_stop: Optional[str] = None):
         if motion_stop is None:
@@ -146,15 +149,16 @@ class IMTP:
         model_name = (
             self.sys(exp_id).change_model_name(suffix=self.model_name_suffix).model_name
         )
-        flex, mag, ja_1d, ja_2d = (
+        flex, mag, ja_1d, ja_2d, dof = (
             int(self.flex),
             int(self.mag),
             int(self.joint_axes_1d),
             int(self.joint_axes_2d),
+            int(self.dof),
         )
         return (
             f"{model_name}_exp{str(exp_id).rjust(2, '0')}_{motion_start}_{motion_stop}"
-            + f"_flex_{flex}_mag_{mag}_ja1d_{ja_1d}_ja2d_{ja_2d}"
+            + f"_flex_{flex}_mag_{mag}_ja1d_{ja_1d}_ja2d_{ja_2d}_dof_{dof}"
         )
 
 
@@ -179,37 +183,45 @@ def _build_Xy_xs_xsnoimu(
     )
 
     T = xs.shape()
-    N, F = imtp.N, imtp.F
+    N, F = imtp.N, imtp.getF()
 
     X, y = np.zeros((T, N, F)), np.zeros((T, N, 4))
+
+    slices = imtp.getSlices()
 
     imu_key = "imu_nonrigid" if imtp.flex else "imu_rigid"
     for i, seg in enumerate(imtp.segments):
         if seg in list(imu_attachment.values()):
             X_seg = data[seg][imu_key]
-            X[:, i, imtp.slice("acc")] = X_seg["acc"] / imtp.scale_acc
-            X[:, i, imtp.slice("gyr")] = X_seg["gyr"] / imtp.scale_gyr
+            X[:, i, slices["acc"]] = X_seg["acc"] / imtp.scale_acc
+            X[:, i, slices["gyr"]] = X_seg["gyr"] / imtp.scale_gyr
             if imtp.mag:
-                X[:, i, imtp.slice("mag")] = X_seg["mag"] / imtp.scale_mag
+                X[:, i, slices["mag"]] = X_seg["mag"] / imtp.scale_mag
 
     DOFs = imtp.getDOF(exp_id)
     if imtp.joint_axes_1d:
         X_joint_axes = algorithms.joint_axes(sys_noimu, xs, sys)
         for i, seg in enumerate(imtp.segments):
             if DOFs[seg] == 1:
-                X[:, i, imtp.slice("ja_1d")] = X_joint_axes[seg][
-                    "joint_axes"
-                ]  # noqa: E203
+                X[:, i, slices["ja_1d"]] = X_joint_axes[seg]["joint_axes"]  # noqa: E203
 
     if imtp.joint_axes_2d:
         for i, seg in enumerate(imtp.segments):
             if DOFs[seg] == 2:
                 ja_2d = imtp.getJointAxes2d(exp_id, seg)
-                X[:, i, imtp.slice("ja_2d")] = ja_2d[None]
+                X[:, i, slices["ja_2d"]] = ja_2d[None]
+
+    if imtp.dof:
+        for i, seg in enumerate(imtp.segments):
+            dof_seg = DOFs[seg]
+            if dof_seg in [1, 2, 3]:
+                one_hot_array = np.zeros((3,))
+                one_hot_array[dof_seg - 1] = 1.0
+                X[:, i, slices["dof"]] = one_hot_array[None]
 
     if imtp.dt:
         for i, seg in enumerate(imtp.segments):
-            X[:, i, imtp.slice("dt")] = (1 / imtp.hz) / imtp.scale_dt
+            X[:, i, slices["dt"]] = (1 / imtp.hz) / imtp.scale_dt
 
     y_dict = algorithms.rel_pose(sys_noimu, xs, sys)
     y_rootfull = algorithms.sensors.root_full(sys_noimu, xs, sys, child_to_parent=True)
