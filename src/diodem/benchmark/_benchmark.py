@@ -4,6 +4,8 @@ from functools import cache
 from pathlib import Path
 from typing import Optional
 
+from diodem import load_data
+from diodem._src import _is_arm_or_gait
 import jax.numpy as jnp
 import numpy as np
 from ring import algorithms
@@ -12,9 +14,6 @@ from ring import maths
 from ring import ml
 from ring import sim2real
 from ring import utils
-
-from diodem import load_data
-from diodem._src import _is_arm_or_gait
 
 
 @cache
@@ -70,6 +69,7 @@ class IMTP:
     scale_gyr: float = 1.0
     scale_mag: float = 1.0
     scale_dt: float = 1.0
+    scale_ja: float = 1.0
 
     def replace(self, **kwargs):
         return replace(self, **kwargs)
@@ -203,13 +203,15 @@ def _build_Xy_xs_xsnoimu(
         X_joint_axes = algorithms.joint_axes(sys_noimu, xs, sys)
         for i, seg in enumerate(imtp.segments):
             if DOFs[seg] == 1:
-                X[:, i, slices["ja_1d"]] = X_joint_axes[seg]["joint_axes"]  # noqa: E203
+                X[:, i, slices["ja_1d"]] = (
+                    X_joint_axes[seg]["joint_axes"] / imtp.scale_ja
+                )  # noqa: E203
 
     if imtp.joint_axes_2d:
         for i, seg in enumerate(imtp.segments):
             if DOFs[seg] == 2:
                 ja_2d = imtp.getJointAxes2d(exp_id, seg)
-                X[:, i, slices["ja_2d"]] = ja_2d[None]
+                X[:, i, slices["ja_2d"]] = ja_2d[None] / imtp.scale_ja
 
     if imtp.dof:
         for i, seg in enumerate(imtp.segments):
