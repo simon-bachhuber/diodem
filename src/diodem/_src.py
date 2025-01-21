@@ -1,4 +1,5 @@
 from functools import cache
+from functools import wraps
 from typing import Optional
 
 import numpy as np
@@ -113,13 +114,75 @@ def _convert_motion(exp_id: int, motion: str | int) -> str:
     return timing
 
 
+def _cache_forward_docstring(f):
+    return cache(wraps(f)(f))
+
+
+@_cache_forward_docstring
+def load_all_valid_motions_in_trial(exp_id: int) -> list[str]:
+    "Returns all valid `motion` identifiers in trial with `exp_id`"
+    return [s[len("motionXX_") :] for s in _load_timings(exp_id)]  # noqa: E203
+
+
+@_cache_forward_docstring
+def load_timing_relative_to_complete_trial(exp_id: int, motion: str) -> tuple[float]:
+    """Return `T_start` and `T_stop` in seconds of `motion` in the complete
+    trial `exp_id`, i.e. the trial data loaded using
+    `load_data(exp_id, motion_start=1, motion_stop=-1)`
+    """
+
+    hz = 100
+    data = load_data(exp_id, motion_start=motion, motion_stop=None, resample_to_hz=hz)
+    delta_T = data["seg1"]["quat"].shape[0] / hz
+
+    timings = load_all_valid_motions_in_trial(exp_id)
+    motion_i = timings.index(motion)
+    T_start = (
+        0
+        if motion_i == 0
+        else load_timing_relative_to_complete_trial(exp_id, timings[motion_i - 1])[1]
+    )
+
+    return T_start, T_start + delta_T
+
+
 def load_data(
     exp_id: int,
     motion_start: str | int = 1,
     motion_stop: Optional[str | int] = None,
     resample_to_hz: float = 100.0,
 ) -> dict:
+    """
+    Load motion capture and inertial data for a specified experiment and range of motions.
 
+    Args:
+        exp_id (int): Experiment ID corresponding to the dataset. From 1 to 11 (incl.).
+        motion_start (str | int, optional): The starting motion, specified by its index (int)
+            or name (str). Defaults to 1.
+        motion_stop (str | int, optional): The ending motion, specified by its index (int)
+            or name (str). If None, only `motion_start` is loaded. If -1, loads until the last motion.
+            Defaults to None.
+        resample_to_hz (float, optional): Target sampling rate for data resampling.
+            Defaults to 100.0 Hz.
+
+    Returns:
+        dict: A nested dictionary containing resampled motion capture (OMC) and inertial
+        measurement unit (IMU) data. Data includes quaternion, marker positions,
+        and accelerometer, gyroscope, and magnetometer readings for each segment.
+
+    Raises:
+        AssertionError: If `motion_start` or `motion_stop` are invalid or if
+        `motion_start` index is greater than `motion_stop` index.
+        Exception: If specified motion is not found in the experiment's timings.
+
+    Notes:
+        - Data for each segment includes:
+            - Quaternion data (`quat`).
+            - Marker positions (`marker1`, `marker2`, etc.).
+            - IMU data (`imu_rigid` and `imu_nonrigid`) for acceleration (`acc`),
+              gyroscope (`gyr`), and magnetometer (`mag`).
+        - Data is resampled to match the specified `resample_to_hz` frequency.
+    """  # noqa: E501
     timings = _load_timings(exp_id)
     motion_start = _convert_motion(exp_id, motion_start)
     assert motion_start in timings
