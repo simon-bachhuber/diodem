@@ -275,9 +275,12 @@ def benchmark(
     warmup = int(warmup * imtp.hz)
     errors = dict()
     for i, seg in enumerate(imtp.segments):
-        ae = np.rad2deg(maths.angle_error(y[:, i], yhat[:, i])[warmup:])
+        mae = np.rad2deg(maths.angle_error(y[:, i], yhat[:, i])[warmup:])
+        incl = np.rad2deg(maths.inclination_loss(y[:, i], yhat[:, i])[warmup:])
         errors[seg] = {}
-        errors[seg]["mae"] = np.mean(ae)
-        errors[seg]["std"] = np.std(ae)
+        errors[seg]["mae_deg"] = float(np.mean(mae))
+        errors[seg]["mae_std"] = float(np.std(mae))
+        errors[seg]["inc_deg"] = float(np.mean(incl))
+        errors[seg]["inc_std"] = float(np.std(incl))
 
     return errors, X, y, yhat, xs, xs_noimu
