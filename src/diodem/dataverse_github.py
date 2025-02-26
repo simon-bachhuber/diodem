@@ -136,7 +136,10 @@ def _url_github(
 
 def _wget(url: str, out: str):
     download_response = requests.get(url)
-    if download_response.status_code == 404:
-        raise Exception(f"404: file ({url}) not found")
+    if download_response.status_code >= 400:
+        raise Exception(
+            f"HTTP error {download_response.status_code}: Failed to download {url}"
+        )
+
     with open(out, "wb") as f:
         f.write(download_response.content)
