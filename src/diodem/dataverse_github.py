@@ -36,7 +36,7 @@ def listdir(
 
 def download(
     path_in_repo: str,
-    path_to_cache: str = "~/.diodem_cache",
+    path_to_cache: str,
     backend: str = _default_backend,
 ) -> Path:
     "Download file from Github/Dataverse repo. Returns path on disk."

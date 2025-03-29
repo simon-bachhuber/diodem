@@ -1,5 +1,6 @@
 from functools import cache
 from functools import wraps
+import os
 from typing import Optional
 
 import numpy as np
@@ -55,7 +56,8 @@ def _load_data(exp_id: int, motion: str):
         f"_{motion[:8]}_"
     )
 
-    downloader = lambda file: dataverse_github.download(path + file)
+    path_to_cache = os.environ.get("DIODEM_CACHE_FOLDER", "~/.diodem_cache")
+    downloader = lambda file: dataverse_github.download(path + file, path_to_cache)
 
     omc = pd.read_csv(downloader("omc.csv"), delimiter=",", skiprows=2)
     omc_hz = int(open(downloader("omc.csv")).readline().split(":")[1].lstrip().rstrip())
