@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "imt-diodem"
-version = "1.1.7"
+version = "1.1.8"
 authors = [
   { name="Simon Bachhuber", email="simon.bachhuber@fau.de" },
 ]
@@ -26,11 +26,6 @@ dependencies = [
     "imt-tree-utils",
 ]
 
-[project.optional-dependencies]
-benchmark = [
-    "imt-ring",
-]
-
 [project.urls]
 Homepage = "https://github.com/SimiPixel/diodem"
 Issues = "https://github.com/SimiPixel/diodem/issues"
@@ -42,4 +37,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-diodem = ["benchmark/xmls/gait.xml", "benchmark/xmls/arm.xml", "dataverse_response.json"]
+diodem = ["dataverse_response.json"]
