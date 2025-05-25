@@ -1,6 +1,8 @@
 import pytest
 
+from diodem import load_all_valid_motions_in_trial
 from diodem import load_data
+from diodem import load_timing_relative_to_complete_trial
 
 
 def test_src():
@@ -27,3 +29,19 @@ def test_src():
         load_data(1, "pause1", "canonical")
 
     load_data(1, "pause1", "pause2")
+
+
+def test_dataverse():
+    load_data(9, backend="dataverse")
+
+
+def test_github():
+    load_data(10, backend="github")
+
+
+def test_load_motions():
+    load_all_valid_motions_in_trial(1)
+
+
+def test_load_timings():
+    load_timing_relative_to_complete_trial(1, "slow1")

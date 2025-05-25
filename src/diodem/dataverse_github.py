@@ -5,13 +5,15 @@ from typing import NamedTuple, Optional
 
 import requests
 
-_default_backend = "dataverse"
+NotValidDataHost = Exception(
+    "Possible options for `backend` are 'github' or 'dataverse'"
+)
 
 
 def listdir(
+    backend: str,
     filter_prefix: Optional[str] = None,
     filter_suffix: Optional[str] = None,
-    backend: str = _default_backend,
 ) -> list[str]:
 
     if backend == "github":
@@ -19,7 +21,7 @@ def listdir(
     elif backend == "dataverse":
         files = _listdir_dataverse()
     else:
-        raise NotImplementedError
+        raise NotValidDataHost
 
     if filter_prefix is not None:
         files = [file for file in files if file[: len(filter_prefix)] == filter_prefix]
@@ -35,9 +37,9 @@ def listdir(
 
 
 def download(
+    backend: str,
     path_in_repo: str,
     path_to_cache: str,
-    backend: str = _default_backend,
 ) -> Path:
     "Download file from Github/Dataverse repo. Returns path on disk."
     path_on_disk = Path(path_to_cache).expanduser().joinpath(path_in_repo)
@@ -49,7 +51,7 @@ def download(
         elif backend == "dataverse":
             url = _url_dataverse(path_in_repo)
         else:
-            raise NotImplementedError
+            raise NotValidDataHost
 
         print(f"Downloading file from url {url}.. (this might take a moment)")
         _wget(url, out=str(path_on_disk))
@@ -109,8 +111,8 @@ def _url_dataverse(path_in_repo: str) -> str:
     return f"{_dataverse_url}/access/datafile/{file.id}"
 
 
-_github_user = "SimiPixel"
-_github_repo = "diodem"
+_github_user = "simon-bachhuber"
+_github_repo = "diodem_datahost"
 _github_branch = "main"
 
 

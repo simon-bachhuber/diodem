@@ -12,10 +12,10 @@ from diodem import utils
 
 
 @cache
-def _is_arm_or_gait(exp_id: int) -> str:
+def _is_arm_or_gait(exp_id: int, backend: str) -> str:
     exp_id = str(exp_id).rjust(2, "0")
     search = lambda arm_or_gait: dataverse_github.listdir(
-        f"dataset/{arm_or_gait}/exp{exp_id}"
+        backend, f"dataset/{arm_or_gait}/exp{exp_id}"
     )
     if len(search("arm")) > 0:
         return "arm"
@@ -25,14 +25,15 @@ def _is_arm_or_gait(exp_id: int) -> str:
         raise Exception(f"`exp_id`={exp_id} was not found in repo.")
 
 
-def _path_up_to_motion(exp_id: int) -> str:
-    return f"dataset/{_is_arm_or_gait(exp_id)}/exp{str(exp_id).rjust(2, '0')}"
+def _path_up_to_motion(exp_id: int, backend: str) -> str:
+    return f"dataset/{_is_arm_or_gait(exp_id, backend)}/exp{str(exp_id).rjust(2, '0')}"
 
 
 @cache
-def _load_timings(exp_id: int) -> list[str]:
+def _load_timings(exp_id: int, backend: str) -> list[str]:
     omc_files = dataverse_github.listdir(
-        filter_prefix=_path_up_to_motion(exp_id),
+        backend=backend,
+        filter_prefix=_path_up_to_motion(exp_id, backend),
         filter_suffix="omc.csv",
     )
     motions = [file.split("/")[3] for file in omc_files]
@@ -50,14 +51,16 @@ def _stack_from_df(df: pd.DataFrame, prefix: str, wxyz: str):
 
 
 @cache
-def _load_data(exp_id: int, motion: str):
+def _load_data(exp_id: int, motion: str, backend: str):
     path = (
-        f"{_path_up_to_motion(exp_id)}/{motion}/exp{str(exp_id).rjust(2, '0')}"
+        f"{_path_up_to_motion(exp_id, backend)}/{motion}/exp{str(exp_id).rjust(2, '0')}"
         f"_{motion[:8]}_"
     )
 
     path_to_cache = os.environ.get("DIODEM_CACHE_FOLDER", "~/.diodem_cache")
-    downloader = lambda file: dataverse_github.download(path + file, path_to_cache)
+    downloader = lambda file: dataverse_github.download(
+        backend, path + file, path_to_cache
+    )
 
     omc = pd.read_csv(downloader("omc.csv"), delimiter=",", skiprows=2)
     omc_hz = int(open(downloader("omc.csv")).readline().split(":")[1].lstrip().rstrip())
@@ -101,8 +104,8 @@ def _load_data(exp_id: int, motion: str):
     return data, omc_hz, imu_rigid_hz
 
 
-def _convert_motion(exp_id: int, motion: str | int) -> str:
-    timings = _load_timings(exp_id)
+def _convert_motion(exp_id: int, motion: str | int, backend: str) -> str:
+    timings = _load_timings(exp_id, backend)
     for timing in timings:
         if isinstance(motion, str):
             if timing[9:] == motion:
@@ -121,13 +124,15 @@ def _cache_forward_docstring(f):
 
 
 @_cache_forward_docstring
-def load_all_valid_motions_in_trial(exp_id: int) -> list[str]:
+def load_all_valid_motions_in_trial(exp_id: int, backend: str = "github") -> list[str]:
     "Returns all valid `motion` identifiers in trial with `exp_id`"
-    return [s[len("motionXX_") :] for s in _load_timings(exp_id)]  # noqa: E203
+    return [s[len("motionXX_") :] for s in _load_timings(exp_id, backend)]  # noqa: E203
 
 
 @_cache_forward_docstring
-def load_timing_relative_to_complete_trial(exp_id: int, motion: str) -> tuple[float]:
+def load_timing_relative_to_complete_trial(
+    exp_id: int, motion: str, backend: str = "github"
+) -> tuple[float]:
     """Return `T_start` and `T_stop` in seconds of `motion` in the complete
     trial `exp_id`, i.e. the trial data loaded using
     `load_data(exp_id, motion_start=1, motion_stop=-1)`
@@ -137,12 +142,14 @@ def load_timing_relative_to_complete_trial(exp_id: int, motion: str) -> tuple[fl
     data = load_data(exp_id, motion_start=motion, motion_stop=None, resample_to_hz=hz)
     delta_T = data["seg1"]["quat"].shape[0] / hz
 
-    timings = load_all_valid_motions_in_trial(exp_id)
+    timings = load_all_valid_motions_in_trial(exp_id, backend)
     motion_i = timings.index(motion)
     T_start = (
         0
         if motion_i == 0
-        else load_timing_relative_to_complete_trial(exp_id, timings[motion_i - 1])[1]
+        else load_timing_relative_to_complete_trial(
+            exp_id, timings[motion_i - 1], backend
+        )[1]
     )
 
     return T_start, T_start + delta_T
@@ -153,6 +160,7 @@ def load_data(
     motion_start: str | int = 1,
     motion_stop: Optional[str | int] = None,
     resample_to_hz: float = 100.0,
+    backend: str = "github",
 ) -> dict:
     """
     Load motion capture and inertial data for a specified experiment and range of motions.
@@ -166,6 +174,7 @@ def load_data(
             Defaults to None.
         resample_to_hz (float, optional): Target sampling rate for data resampling.
             Defaults to 100.0 Hz.
+        backend (str, optional): The datahost backend to load the data from. Can be 'github' or 'dataverse'.
 
     Returns:
         dict: A nested dictionary containing resampled motion capture (OMC) and inertial
@@ -184,9 +193,10 @@ def load_data(
             - IMU data (`imu_rigid` and `imu_nonrigid`) for acceleration (`acc`),
               gyroscope (`gyr`), and magnetometer (`mag`).
         - Data is resampled to match the specified `resample_to_hz` frequency.
+        - The location where data is stored can be modified by setting the env variable DIODEM_CACHE_FOLDER (default: ~/.diodem_cache).
     """  # noqa: E501
-    timings = _load_timings(exp_id)
-    motion_start = _convert_motion(exp_id, motion_start)
+    timings = _load_timings(exp_id, backend)
+    motion_start = _convert_motion(exp_id, motion_start, backend)
     assert motion_start in timings
 
     if motion_stop is None:
@@ -194,7 +204,7 @@ def load_data(
     elif motion_stop == -1:
         motion_stop = timings[-1]
     else:
-        motion_stop = _convert_motion(exp_id, motion_stop)
+        motion_stop = _convert_motion(exp_id, motion_stop, backend)
         assert motion_stop in timings
 
     motion_start_i = timings.index(motion_start)
@@ -204,7 +214,7 @@ def load_data(
     motions = timings[motion_start_i : (motion_stop_i + 1)]  # noqa: E203
     data = []
     for motion in motions:
-        data_motion, hz_omc, hz_imu = _load_data(exp_id, motion)
+        data_motion, hz_omc, hz_imu = _load_data(exp_id, motion, backend)
         data.append(data_motion)
 
     data = tree_utils.tree_batch(data, along_existing_first_axis=True, backend="numpy")
