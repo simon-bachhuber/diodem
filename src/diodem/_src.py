@@ -12,7 +12,7 @@ from diodem import utils
 
 
 @cache
-def _is_arm_or_gait(exp_id: int, backend: str) -> str:
+def _is_arm_or_gait(exp_id: int, backend: str = "github") -> str:
     exp_id = str(exp_id).rjust(2, "0")
     search = lambda arm_or_gait: dataverse_github.listdir(
         backend, f"dataset/{arm_or_gait}/exp{exp_id}"
